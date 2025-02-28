@@ -37,6 +37,11 @@ param storageResourceGroupLocation string = location
 param storageContainerName string = 'content'
 param storageSkuName string // Set in main.parameters.json
 
+param keyVaultName string = '' // Set in main.parameters.json
+param keyVaultResourceGroupName string = '' // Set in main.parameters.json
+param keyVaultResourceGroupLocation string = location
+
+
 param userStorageAccountName string = ''
 param userStorageContainerName string = 'user-content'
 
@@ -316,6 +321,10 @@ resource storageResourceGroup 'Microsoft.Resources/resourceGroups@2021-04-01' ex
   name: !empty(storageResourceGroupName) ? storageResourceGroupName : resourceGroup.name
 }
 
+resource keyVaultResourceGroup 'Microsoft.Resources/resourceGroups@2021-04-01' existing = if (!empty(keyVaultResourceGroupName)) {
+  name: !empty(keyVaultResourceGroupName) ? keyVaultResourceGroupName : resourceGroup.name
+}
+
 resource speechResourceGroup 'Microsoft.Resources/resourceGroups@2021-04-01' existing = if (!empty(speechServiceResourceGroupName)) {
   name: !empty(speechServiceResourceGroupName) ? speechServiceResourceGroupName : resourceGroup.name
 }
@@ -368,6 +377,7 @@ module appServicePlan 'core/host/appserviceplan.bicep' = if (deploymentTarget ==
     kind: 'linux'
   }
 }
+
 
 var appEnvVariables = {
   AZURE_STORAGE_ACCOUNT: storage.outputs.name
@@ -463,9 +473,9 @@ module backend 'core/host/appservice.bicep' = if (deploymentTarget == 'appservic
     authenticationIssuerUri: authenticationIssuerUri
     use32BitWorkerProcess: appServiceSkuName == 'F1'
     alwaysOn: appServiceSkuName != 'F1'
-    appSettings: union(appEnvVariables, {
-      AZURE_SERVER_APP_SECRET: serverAppSecret
-      AZURE_CLIENT_APP_SECRET: clientAppSecret
+    appSettings: union(appEnvVariables, {      
+      AZURE_SERVER_APP_SECRET: '@Microsoft.KeyVault(SecretUri=${keyvault.outputs.serverAppSecretUri})'
+      AZURE_CLIENT_APP_SECRET: '@Microsoft.KeyVault(SecretUri=${keyvault.outputs.clientAppSecretUri})'
     })
   }
 }
@@ -749,6 +759,23 @@ module searchDiagnostics 'core/search/search-diagnostics.bicep' = if (useApplica
   }
 }
 
+module keyvault 'core/keyvault/keyVault.bicep' = {
+  name: 'keyvault'
+  scope: keyVaultResourceGroup
+  params: {
+    name: !empty(keyVaultName) ? keyVaultName : '${abbrs.keyVaultVaults}${resourceToken}'
+    location: keyVaultResourceGroupLocation
+    tags: tags
+    publicNetworkAccess: publicNetworkAccess 
+    serverAppSecretName: 'AZURE_SERVER_APP_SECRET'
+    clientAppSecretName: 'AZURE_CLIENT_APP_SECRET'
+    serverAppSecretValue: serverAppSecret
+    clientAppSecretValue: clientAppSecret  
+    managedIdentity: true 
+  }
+}
+
+
 module storage 'core/storage/storage-account.bicep' = {
   name: 'storage'
   scope: storageResourceGroup
@@ -1021,6 +1048,18 @@ module openAiRoleSearchService 'core/security/role.bicep' = if (isAzureOpenAiHos
   params: {
     principalId: searchService.outputs.principalId
     roleDefinitionId: '5e0bd9bd-7b93-4f28-af87-19fc36ad61bd'
+    principalType: 'ServicePrincipal'
+  }
+}
+
+module keyVaultSecretReaderRole 'core/security/role.bicep' = {
+  scope: keyVaultResourceGroup
+  name: 'keyvault-role-secret-reader'
+  params: {
+    principalId: (deploymentTarget == 'appservice')
+      ? backend.outputs.identityPrincipalId
+      : acaBackend.outputs.identityPrincipalId
+    roleDefinitionId: '4633458b-17de-408a-b874-0445c86b69e6'
     principalType: 'ServicePrincipal'
   }
 }
