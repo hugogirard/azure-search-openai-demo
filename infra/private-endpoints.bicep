@@ -1,13 +1,10 @@
 @description('The tags to apply to all resources')
 param tags object = {}
 
-@description('The name of an existing VNet')
-param vnetName string
-
 @description('The location to create the private endpoints')
 param location string = resourceGroup().location
 
-param vnetPeSubnetName string
+param vnetPeSubnetId string
 
 @description('A formatted array of private endpoint connections containing the dns zone name, group id, and list of resource ids of Private Endpoints to create')
 param privateEndpointConnections array
@@ -61,7 +58,7 @@ module privateEndpoints './core/networking/private-endpoint.bicep' = [
       location: location
       name: '${privateEndpointInfo.name}${abbrs.privateEndpoint}${resourceToken}'
       tags: tags
-      subnetId: vnetPeSubnetName
+      subnetId: vnetPeSubnetId
       serviceId: privateEndpointInfo.resourceId
       groupIds: [privateEndpointInfo.groupId]
       dnsZoneId: dnsZones[privateEndpointInfo.dnsZoneIndex].id
@@ -125,7 +122,7 @@ module monitorPrivateEndpoint './core/networking/private-endpoint.bicep' = {
     name: 'monitor${abbrs.privateEndpoint}${resourceToken}'
     location: location
     tags: tags
-    subnetId: vnetPeSubnetName
+    subnetId: vnetPeSubnetId
     serviceId: monitorPrivateLinkScope.id
     groupIds: ['azuremonitor']
     // Add multiple DNS zone configs for Azure Monitor

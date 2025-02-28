@@ -1056,10 +1056,9 @@ module privateEndpoints 'private-endpoints.bicep' = if (usePrivateEndpoint) {
     privateEndpointConnections: privateEndpointConnections
     applicationInsightsId: useApplicationInsights ? monitoring.outputs.applicationInsightsId : ''
     logAnalyticsWorkspaceId: useApplicationInsights ? monitoring.outputs.logAnalyticsWorkspaceId : ''
-    vnetName: useExistingVnet ? vnetExisting.outputs.name : vnet.outputs.name
-    vnetPeSubnetName: useExistingVnet
-      ? vnetExisting.outputs.privateEndpointSubnetName
-      : vnet.outputs.privateEndpointSubnetName
+    vnetPeSubnetId: useExistingVnet
+      ? vnetExisting.outputs.privateEndpointSubnetId
+      : vnet.outputs.privateEndpointSubnetId
     dnsSubId: dnsSubscriptionId
     dnsZoneRG: dnsZoneRG
   }
