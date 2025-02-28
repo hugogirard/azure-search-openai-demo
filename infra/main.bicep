@@ -182,7 +182,6 @@ var eval = {
   deploymentCapacity: evalDeploymentCapacity != 0 ? evalDeploymentCapacity : 30
 }
 
-
 param tenantId string = tenant().tenantId
 param authTenantId string = ''
 
@@ -278,12 +277,18 @@ param containerRegistryName string = deploymentTarget == 'containerapps'
 
 // Configure CORS for allowing different web apps to use the backend
 // For more information please see https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS
-var msftAllowedOrigins = [ 'https://portal.azure.com', 'https://ms.portal.azure.com' ]
+var msftAllowedOrigins = ['https://portal.azure.com', 'https://ms.portal.azure.com']
 var loginEndpoint = environment().authentication.loginEndpoint
-var loginEndpointFixed = lastIndexOf(loginEndpoint, '/') == length(loginEndpoint) - 1 ? substring(loginEndpoint, 0, length(loginEndpoint) - 1) : loginEndpoint
-var allMsftAllowedOrigins = !(empty(clientAppId)) ? union(msftAllowedOrigins, [ loginEndpointFixed ]) : msftAllowedOrigins
+var loginEndpointFixed = lastIndexOf(loginEndpoint, '/') == length(loginEndpoint) - 1
+  ? substring(loginEndpoint, 0, length(loginEndpoint) - 1)
+  : loginEndpoint
+var allMsftAllowedOrigins = !(empty(clientAppId)) ? union(msftAllowedOrigins, [loginEndpointFixed]) : msftAllowedOrigins
 // Combine custom origins with Microsoft origins, remove any empty origin strings and remove any duplicate origins
-var allowedOrigins = reduce(filter(union(split(allowedOrigin, ';'), allMsftAllowedOrigins), o => length(trim(o)) > 0), [], (cur, next) => union(cur, [next]))
+var allowedOrigins = reduce(
+  filter(union(split(allowedOrigin, ';'), allMsftAllowedOrigins), o => length(trim(o)) > 0),
+  [],
+  (cur, next) => union(cur, [next])
+)
 
 // Organize resources in a resource group
 resource resourceGroup 'Microsoft.Resources/resourceGroups@2021-04-01' = {
@@ -522,20 +527,24 @@ module acaBackend 'core/host/container-app-upsert.bicep' = if (deploymentTarget 
       // For using managed identity to access Azure resources. See https://github.com/microsoft/azure-container-apps/issues/442
       AZURE_CLIENT_ID: (deploymentTarget == 'containerapps') ? acaIdentity.outputs.clientId : ''
     })
-    secrets: useAuthentication ? {
-      azureclientappsecret: clientAppSecret
-      azureserverappsecret: serverAppSecret
-    } : {}
-    envSecrets: useAuthentication ? [
-      {
-        name: 'AZURE_CLIENT_APP_SECRET'
-        secretRef: 'azureclientappsecret'
-      }
-      {
-        name: 'AZURE_SERVER_APP_SECRET'
-        secretRef: 'azureserverappsecret'
-      }
-    ] : []
+    secrets: useAuthentication
+      ? {
+          azureclientappsecret: clientAppSecret
+          azureserverappsecret: serverAppSecret
+        }
+      : {}
+    envSecrets: useAuthentication
+      ? [
+          {
+            name: 'AZURE_CLIENT_APP_SECRET'
+            secretRef: 'azureclientappsecret'
+          }
+          {
+            name: 'AZURE_SERVER_APP_SECRET'
+            secretRef: 'azureserverappsecret'
+          }
+        ]
+      : []
   }
 }
 
@@ -585,19 +594,20 @@ var openAiDeployments = concat(
   defaultOpenAiDeployments,
   useEval
     ? [
-      {
-        name: eval.deploymentName
-        model: {
-          format: 'OpenAI'
-          name: eval.modelName
-          version: eval.deploymentVersion
+        {
+          name: eval.deploymentName
+          model: {
+            format: 'OpenAI'
+            name: eval.modelName
+            version: eval.deploymentVersion
+          }
+          sku: {
+            name: eval.deploymentSkuName
+            capacity: eval.deploymentCapacity
+          }
         }
-        sku: {
-          name: eval.deploymentSkuName
-          capacity: eval.deploymentCapacity
-        }
-      }
-    ] : [],
+      ]
+    : [],
   useGPT4V
     ? [
         {
@@ -681,7 +691,6 @@ module computerVision 'br/public:avm/res/cognitive-services/account:0.7.2' = if 
     sku: computerVisionSkuName
   }
 }
-
 
 module contentUnderstanding 'br/public:avm/res/cognitive-services/account:0.7.2' = if (useMediaDescriberAzureCU) {
   name: 'content-understanding'
@@ -881,7 +890,6 @@ module ai 'core/ai/ai-environment.bicep' = if (useAiProject) {
     applicationInsightsId: !useApplicationInsights ? '' : monitoring.outputs.applicationInsightsId
   }
 }
-
 
 // USER ROLES
 var principalType = empty(runningOnGh) && empty(runningOnAdo) ? 'User' : 'ServicePrincipal'
@@ -1150,6 +1158,11 @@ var otherPrivateEndpointConnections = (usePrivateEndpoint && deploymentTarget ==
         resourceIds: [backend.outputs.id]
       }
       {
+        groupId: 'sites'
+        dnsZoneName: 'privatelink.azurewebsites.net'
+        resourceIds: [func.outputs.id]
+      }
+      {
         groupId: 'sql'
         dnsZoneName: 'privatelink.documents.azure.com'
         resourceIds: (useAuthentication && useChatHistoryCosmos) ? [cosmosDb.outputs.resourceId] : []
@@ -1227,8 +1240,6 @@ module documentIntelligenceRoleBackend 'core/security/role.bicep' = if (useUserU
   }
 }
 
-
-
 // Function App and supporting infra Provisioning
 
 var functionAppName = '${abbrs.webSitesFunctions}${resourceToken}'
@@ -1249,7 +1260,7 @@ module func './core/host/functions.bicep' = {
     storageAccountName: storageAccountName
     deploymentStorageContainerName: deploymentStorageContainerName
     virtualNetworkSubnetId: isolation.outputs.appSubnetId
-    instanceMemoryMB: 2048 
+    instanceMemoryMB: 2048
     maximumInstanceCount: 2
   }
 }
@@ -1262,18 +1273,18 @@ module funcStorage './core/storage/storage-account.bicep' = {
     name: 'func${abbrs.storageStorageAccounts}${resourceToken}'
     location: location
     tags: tags
-    containers: [{name: deploymentStorageContainerName}]
+    containers: [{ name: deploymentStorageContainerName }]
   }
 }
 
-var storageRoleDefinitionId  = 'b7e6dc6d-f1e8-4753-8033-0f276bb0955b' //Storage Blob Data Owner role
+var storageRoleDefinitionId = 'b7e6dc6d-f1e8-4753-8033-0f276bb0955b' //Storage Blob Data Owner role
 
 // Allow access from func to storage account using a managed identity
 module storageRoleAssignmentFunction 'core/security/role.bicep' = {
   name: 'storageRoleAssignmentFunction'
   scope: resourceGroup
   params: {
-    principalId: func.outputs.identityPrincipalId    
+    principalId: func.outputs.identityPrincipalId
     roleDefinitionId: storageRoleDefinitionId
     principalType: 'ServicePrincipal'
   }
@@ -1362,8 +1373,6 @@ module searchSvcContribRoleFunction 'core/security/role.bicep' = {
   }
 }
 
-
-
 output SERVICE_FUNC_NAME string = func.outputs.name
 output SERVICE_FUNC_IDENTITY_PRINCIPAL_ID string = func.outputs.identityPrincipalId
 
@@ -1392,7 +1401,9 @@ output AZURE_SPEECH_SERVICE_ID string = useSpeechOutputAzure ? speech.outputs.re
 output AZURE_SPEECH_SERVICE_LOCATION string = useSpeechOutputAzure ? speech.outputs.location : ''
 
 output AZURE_VISION_ENDPOINT string = useGPT4V ? computerVision.outputs.endpoint : ''
-output AZURE_CONTENTUNDERSTANDING_ENDPOINT string = useMediaDescriberAzureCU ? contentUnderstanding.outputs.endpoint : ''
+output AZURE_CONTENTUNDERSTANDING_ENDPOINT string = useMediaDescriberAzureCU
+  ? contentUnderstanding.outputs.endpoint
+  : ''
 
 output AZURE_DOCUMENTINTELLIGENCE_SERVICE string = documentIntelligence.outputs.name
 output AZURE_DOCUMENTINTELLIGENCE_RESOURCE_GROUP string = documentIntelligenceResourceGroup.name
