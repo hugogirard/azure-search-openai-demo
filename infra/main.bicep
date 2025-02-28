@@ -325,6 +325,7 @@ var monitorPrivateDnsZoneName = 'privatelink.monitor.azure.com'
 var omsPrivateDnsZoneName = 'privatelink.oms.opinsights.azure.com'
 var odsPrivateDnsZoneName = 'privatelink.ods.opinsights.azure.com'
 var agentServicePrivateDnsZoneName = 'privatelink.agentsvc.azure.automation.net'
+var containerAppsPrivateDnsZoneName = 'privatelink.${location}.azurecontainerapps.io'
 
 var privateDnsZoneNames = [
   openAiPrivateDnsZoneName
@@ -342,6 +343,7 @@ var privateDnsZoneNames = [
   omsPrivateDnsZoneName
   odsPrivateDnsZoneName
   agentServicePrivateDnsZoneName
+  containerAppsPrivateDnsZoneName
 ]
 
 // Organize resources in a resource group
@@ -1024,23 +1026,15 @@ var otherPrivateEndpointConnections = (usePrivateEndpoint)
           resourceIds: (useAuthentication && useChatHistoryCosmos) ? [cosmosDb.outputs.resourceId] : []
         }
       ],
-      deploymentTarget == 'containerapps'
-        ? publicNetworkAccess == 'Disabled'
-            ? [
-                {
-                  groupId: 'storage'
-                  dnsZoneName: storageBlobPrivateDnsZoneName
-                  resourceIds: [storage.outputs.id]
-                }
-              ]
-            : []
-        : [
+      deploymentTarget == 'appservice'
+        ? [
             {
               groupId: 'sites'
               dnsZoneName: websitePrivateDnsZoneName
               resourceIds: [backend.outputs.id]
             }
           ]
+        : []
     )
   : []
 
