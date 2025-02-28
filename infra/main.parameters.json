@@ -90,10 +90,10 @@
       "value": "${AZURE_STORAGE_SKU=Standard_LRS}"
     },
     "keyVaultName": {
-      "value": "${AZURE_STORAGE_ACCOUNT}"
+      "value": "${AZURE_KEYVAULT}"
     },
     "keyVaultResourceGroupName": {
-      "value": "${AZURE_STORAGE_RESOURCE_GROUP}"
+      "value": "${AZURE_KEYVAULT_RESOURCE_GROUP}"
     },
     "appServicePlanName": {
       "value": "${AZURE_APP_SERVICE_PLAN}"
