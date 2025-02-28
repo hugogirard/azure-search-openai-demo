@@ -325,7 +325,6 @@ var monitorPrivateDnsZoneName = 'privatelink.monitor.azure.com'
 var omsPrivateDnsZoneName = 'privatelink.oms.opinsights.azure.com'
 var odsPrivateDnsZoneName = 'privatelink.ods.opinsights.azure.com'
 var agentServicePrivateDnsZoneName = 'privatelink.agentsvc.azure.automation.net'
-var containerAppsPrivateDnsZoneName = 'privatelink.${location}.azurecontainerapps.io'
 
 var privateDnsZoneNames = [
   openAiPrivateDnsZoneName
@@ -343,7 +342,6 @@ var privateDnsZoneNames = [
   omsPrivateDnsZoneName
   odsPrivateDnsZoneName
   agentServicePrivateDnsZoneName
-  containerAppsPrivateDnsZoneName
 ]
 
 // Organize resources in a resource group
