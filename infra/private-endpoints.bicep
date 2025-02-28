@@ -16,11 +16,11 @@ param privateEndpointConnections array
 param resourceToken string
 
 @description('Ingestion access mode for Azure Monitor Private Link Scope')
-@allowed([ 'PrivateOnly', 'Open' ])
+@allowed(['PrivateOnly', 'Open'])
 param monitorIngestionAccessMode string = 'PrivateOnly'
 
 @description('Query access mode for Azure Monitor Private Link Scope')
-@allowed([ 'PrivateOnly', 'Open' ])
+@allowed(['PrivateOnly', 'Open'])
 param monitorQueryAccessMode string = 'Open'
 
 @description('Resource ID of Application Insights for Azure Monitor Private Link Scope')
@@ -29,40 +29,46 @@ param applicationInsightsId string
 @description('Resource ID of Log Analytics Workspace for Azure Monitor Private Link Scope')
 param logAnalyticsWorkspaceId string
 
+param dnsZoneRG string = resourceGroup().name
+param dnsSubId string = subscription().subscriptionId
+
 var abbrs = loadJsonContent('abbreviations.json')
 
 // DNS Zones
-module dnsZones './core/networking/private-dns-zones.bicep' = [for privateEndpointConnection in privateEndpointConnections: {
-  name: '${privateEndpointConnection.groupId}-dnszone'
-  params: {
-    dnsZoneName: privateEndpointConnection.dnsZoneName
-    tags: tags
-    virtualNetworkName: vnetName
+resource dnsZones 'Microsoft.Network/privateDnsZones@2020-06-01' existing = [
+  for privateEndpointConnection in privateEndpointConnections: {
+    name: privateEndpointConnection.dnsZoneName
+    scope: resourceGroup(dnsSubId, dnsZoneRG)
   }
-}]
+]
 
 // Private Endpoints
 var privateEndpointInfo = [
-  for (privateEndpointConnection, i) in privateEndpointConnections: map(privateEndpointConnection.resourceIds, resourceId => {
-    dnsZoneIndex: i
-    groupId: privateEndpointConnection.groupId
-    name: last(split(resourceId, '/'))
-    resourceId: resourceId
-  })
+  for (privateEndpointConnection, i) in privateEndpointConnections: map(
+    privateEndpointConnection.resourceIds,
+    resourceId => {
+      dnsZoneIndex: i
+      groupId: privateEndpointConnection.groupId
+      name: last(split(resourceId, '/'))
+      resourceId: resourceId
+    }
+  )
 ]
-module privateEndpoints './core/networking/private-endpoint.bicep' = [for privateEndpointInfo in flatten(privateEndpointInfo): {
-  name: '${privateEndpointInfo.name}-privateendpoint'
-  params: {
-    location: location
-    name: '${privateEndpointInfo.name}${abbrs.privateEndpoint}${resourceToken}'
-    tags: tags
-    subnetId: vnetPeSubnetName
-    serviceId: privateEndpointInfo.resourceId
-    groupIds: [ privateEndpointInfo.groupId ]
-    dnsZoneId: dnsZones[privateEndpointInfo.dnsZoneIndex].outputs.id
+module privateEndpoints './core/networking/private-endpoint.bicep' = [
+  for privateEndpointInfo in flatten(privateEndpointInfo): {
+    name: '${privateEndpointInfo.name}-privateendpoint'
+    params: {
+      location: location
+      name: '${privateEndpointInfo.name}${abbrs.privateEndpoint}${resourceToken}'
+      tags: tags
+      subnetId: vnetPeSubnetName
+      serviceId: privateEndpointInfo.resourceId
+      groupIds: [privateEndpointInfo.groupId]
+      dnsZoneId: dnsZones[privateEndpointInfo.dnsZoneIndex].id
+    }
+    dependsOn: [dnsZones]
   }
-  dependsOn: [ dnsZones ]
-}]
+]
 
 // Provision additional DNS Zones for Azure Monitor
 // https://learn.microsoft.com/azure/azure-monitor/logs/private-link-configure#review-your-endpoints-dns-settings
@@ -72,14 +78,13 @@ var monitorDnsZoneNames = [
   'privatelink.ods.opinsights.azure.com'
   'privatelink.agentsvc.azure.automation.net'
 ]
-module monitorDnsZones './core/networking/private-dns-zones.bicep' = [for monitorDnsZoneName in monitorDnsZoneNames: {
-  name: '${split(monitorDnsZoneName, '.')[1]}-dnszone'
-  params: {
-    dnsZoneName: monitorDnsZoneName
-    tags: tags
-    virtualNetworkName: vnetName
+resource monitorDnsZones 'Microsoft.Network/privateDnsZones@2020-06-01' existing = [
+  for monitorDnsZoneName in monitorDnsZoneNames: {
+    name: monitorDnsZoneName
+    scope: resourceGroup(dnsSubId, dnsZoneRG)
   }
-}]
+]
+
 // Get blob DNS zone index for monitor private link
 var dnsZoneBlobIndex = filter(flatten(privateEndpointInfo), info => info.groupId == 'blob')[0].dnsZoneIndex
 
@@ -122,40 +127,40 @@ module monitorPrivateEndpoint './core/networking/private-endpoint.bicep' = {
     tags: tags
     subnetId: vnetPeSubnetName
     serviceId: monitorPrivateLinkScope.id
-    groupIds: [ 'azuremonitor' ]
+    groupIds: ['azuremonitor']
     // Add multiple DNS zone configs for Azure Monitor
     privateDnsZoneConfigs: [
       {
         name: monitorDnsZones[0].name
         properties: {
-          privateDnsZoneId: monitorDnsZones[0].outputs.id
+          privateDnsZoneId: monitorDnsZones[0].id
         }
       }
       {
         name: monitorDnsZones[1].name
         properties: {
-          privateDnsZoneId: monitorDnsZones[1].outputs.id
+          privateDnsZoneId: monitorDnsZones[1].id
         }
       }
       {
         name: monitorDnsZones[2].name
         properties: {
-          privateDnsZoneId: monitorDnsZones[2].outputs.id
+          privateDnsZoneId: monitorDnsZones[2].id
         }
       }
       {
         name: monitorDnsZones[3].name
         properties: {
-          privateDnsZoneId: monitorDnsZones[3].outputs.id
+          privateDnsZoneId: monitorDnsZones[3].id
         }
       }
       {
         name: dnsZones[dnsZoneBlobIndex].name
         properties: {
-          privateDnsZoneId: dnsZones[dnsZoneBlobIndex].outputs.id
+          privateDnsZoneId: dnsZones[dnsZoneBlobIndex].id
         }
       }
     ]
   }
-  dependsOn: [ monitorDnsZones, dnsZones ]
+  dependsOn: [monitorDnsZones, dnsZones]
 }

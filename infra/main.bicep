@@ -182,7 +182,6 @@ var eval = {
   deploymentCapacity: evalDeploymentCapacity != 0 ? evalDeploymentCapacity : 30
 }
 
-
 param tenantId string = tenant().tenantId
 param authTenantId string = ''
 
@@ -249,6 +248,27 @@ param useLocalHtmlParser bool = false
 @description('Use AI project')
 param useAiProject bool = false
 
+// ONLY for using existing VNet, set useExistingVnet to true and provide the existing VNet details
+param useExistingVnet bool = false
+param existingVnetRG string = ''
+param existingVnetSubscriptionId string = ''
+param vnetName string = ''
+param privateEndpointSubnetName string = ''
+param appSubnetName string = ''
+
+// ONLY for existing VNet - Existing Private DNS zones mapping
+param dnsZoneRG string = ''
+param dnsSubscriptionId string = ''
+
+// Networking - NSG naming (leave blank to use default naming conventions)
+param privateEndpointNsgName string = ''
+param appNsgName string = ''
+
+// Networking - Address Space
+param vnetAddressPrefix string = '10.170.0.0/24'
+param privateEndpointSubnetPrefix string = '10.170.0.64/26'
+param appSubnetPrefix string = '10.170.0.128/26'
+
 var abbrs = loadJsonContent('abbreviations.json')
 var resourceToken = toLower(uniqueString(subscription().id, environmentName, location))
 var tags = { 'azd-env-name': environmentName }
@@ -278,12 +298,51 @@ param containerRegistryName string = deploymentTarget == 'containerapps'
 
 // Configure CORS for allowing different web apps to use the backend
 // For more information please see https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS
-var msftAllowedOrigins = [ 'https://portal.azure.com', 'https://ms.portal.azure.com' ]
+var msftAllowedOrigins = ['https://portal.azure.com', 'https://ms.portal.azure.com']
 var loginEndpoint = environment().authentication.loginEndpoint
-var loginEndpointFixed = lastIndexOf(loginEndpoint, '/') == length(loginEndpoint) - 1 ? substring(loginEndpoint, 0, length(loginEndpoint) - 1) : loginEndpoint
-var allMsftAllowedOrigins = !(empty(clientAppId)) ? union(msftAllowedOrigins, [ loginEndpointFixed ]) : msftAllowedOrigins
+var loginEndpointFixed = lastIndexOf(loginEndpoint, '/') == length(loginEndpoint) - 1
+  ? substring(loginEndpoint, 0, length(loginEndpoint) - 1)
+  : loginEndpoint
+var allMsftAllowedOrigins = !(empty(clientAppId)) ? union(msftAllowedOrigins, [loginEndpointFixed]) : msftAllowedOrigins
 // Combine custom origins with Microsoft origins, remove any empty origin strings and remove any duplicate origins
-var allowedOrigins = reduce(filter(union(split(allowedOrigin, ';'), allMsftAllowedOrigins), o => length(trim(o)) > 0), [], (cur, next) => union(cur, [next]))
+var allowedOrigins = reduce(
+  filter(union(split(allowedOrigin, ';'), allMsftAllowedOrigins), o => length(trim(o)) > 0),
+  [],
+  (cur, next) => union(cur, [next])
+)
+
+var openAiPrivateDnsZoneName = 'privatelink.openai.azure.com'
+var keyVaultPrivateDnsZoneName = 'privatelink.vaultcore.azure.net'
+var eventHubPrivateDnsZoneName = 'privatelink.servicebus.windows.net'
+var searchPrivateDnsZoneName = 'privatelink.search.azure.com'
+var cosmosDbPrivateDnsZoneName = 'privatelink.documents.azure.com'
+var storageBlobPrivateDnsZoneName = 'privatelink.blob.${environment().suffixes.storage}'
+var storageFilePrivateDnsZoneName = 'privatelink.file.${environment().suffixes.storage}'
+var storageTablePrivateDnsZoneName = 'privatelink.table.${environment().suffixes.storage}'
+var storageQueuePrivateDnsZoneName = 'privatelink.queue.${environment().suffixes.storage}'
+var websitePrivateDnsZoneName = 'privatelink.azurewebsites.net'
+var monitorPrivateDnsZoneName = 'privatelink.monitor.azure.com'
+var omsPrivateDnsZoneName = 'privatelink.oms.opinsights.azure.com'
+var odsPrivateDnsZoneName = 'privatelink.ods.opinsights.azure.com'
+var agentServicePrivateDnsZoneName = 'privatelink.agentsvc.azure.automation.net'
+
+var privateDnsZoneNames = [
+  openAiPrivateDnsZoneName
+  keyVaultPrivateDnsZoneName
+  monitorPrivateDnsZoneName
+  eventHubPrivateDnsZoneName
+  cosmosDbPrivateDnsZoneName
+  storageBlobPrivateDnsZoneName
+  storageFilePrivateDnsZoneName
+  storageTablePrivateDnsZoneName
+  storageQueuePrivateDnsZoneName
+  searchPrivateDnsZoneName
+  websitePrivateDnsZoneName
+  monitorPrivateDnsZoneName
+  omsPrivateDnsZoneName
+  odsPrivateDnsZoneName
+  agentServicePrivateDnsZoneName
+]
 
 // Organize resources in a resource group
 resource resourceGroup 'Microsoft.Resources/resourceGroups@2021-04-01' = {
@@ -322,6 +381,52 @@ resource speechResourceGroup 'Microsoft.Resources/resourceGroups@2021-04-01' exi
 
 resource cosmosDbResourceGroup 'Microsoft.Resources/resourceGroups@2021-04-01' existing = if (!empty(cosmodDbResourceGroupName)) {
   name: !empty(cosmodDbResourceGroupName) ? cosmodDbResourceGroupName : resourceGroup.name
+}
+
+module dnsDeployment './core/networking/dns.bicep' = [
+  for privateDnsZoneName in privateDnsZoneNames: if (!useExistingVnet) {
+    name: 'dns-deployment-${privateDnsZoneName}'
+    scope: resourceGroup
+    params: {
+      name: privateDnsZoneName
+    }
+  }
+]
+
+module vnet './core/networking/vnet.bicep' = if (!useExistingVnet) {
+  name: 'vnet'
+  scope: resourceGroup
+  params: {
+    name: !empty(vnetName) ? vnetName : 'vnet-${resourceToken}'
+    privateEndpointSubnetName: !empty(privateEndpointSubnetName) ? privateEndpointSubnetName : 'snet-private-endpoint'
+    privateEndpointNsgName: !empty(privateEndpointNsgName) ? privateEndpointNsgName : 'nsg-pe-${resourceToken}'
+    appSubnetName: !empty(appSubnetName) ? appSubnetName : 'snet-app'
+    appNsgName: !empty(appNsgName) ? appNsgName : 'nsg-app-${resourceToken}'
+    vnetAddressPrefix: vnetAddressPrefix
+    privateEndpointSubnetAddressPrefix: privateEndpointSubnetPrefix
+    appSubnetAddressPrefix: appSubnetPrefix
+    location: location
+    tags: tags
+    privateDnsZoneNames: privateDnsZoneNames
+  }
+  dependsOn: [
+    dnsDeployment
+  ]
+}
+
+module vnetExisting './core/networking/vnet-existing.bicep' = if (useExistingVnet) {
+  name: 'vnetExisting'
+  scope: resourceGroup
+  params: {
+    name: vnetName
+    privateEndpointSubnetName: !empty(privateEndpointSubnetName) ? privateEndpointSubnetName : 'snet-private-endpoint'
+    appSubnetName: !empty(appSubnetName) ? appSubnetName : 'snet-app'
+    resourceGroupName: existingVnetRG
+    subscriptionId: existingVnetSubscriptionId
+  }
+  dependsOn: [
+    dnsDeployment
+  ]
 }
 
 // Monitor application with Azure Monitor
@@ -452,7 +557,7 @@ module backend 'core/host/appservice.bicep' = if (deploymentTarget == 'appservic
     appCommandLine: 'python3 -m gunicorn main:app'
     scmDoBuildDuringDeployment: true
     managedIdentity: true
-    virtualNetworkSubnetId: isolation.outputs.appSubnetId
+    virtualNetworkSubnetId: useExistingVnet ? vnetExisting.outputs.appSubnetId : vnet.outputs.appSubnetId
     publicNetworkAccess: publicNetworkAccess
     allowedOrigins: allowedOrigins
     clientAppId: clientAppId
@@ -489,10 +594,13 @@ module containerApps 'core/host/container-apps.bicep' = if (deploymentTarget == 
     name: 'app'
     tags: tags
     location: location
+    publicNetworkAccess: publicNetworkAccess
     workloadProfile: azureContainerAppsWorkloadProfile
+    virtualNetworkSubnetId: useExistingVnet ? vnetExisting.outputs.appSubnetId : vnet.outputs.appSubnetId
     containerAppsEnvironmentName: acaManagedEnvironmentName
     containerRegistryName: '${containerRegistryName}${resourceToken}'
     logAnalyticsWorkspaceResourceId: useApplicationInsights ? monitoring.outputs.logAnalyticsWorkspaceId : ''
+    applicationInsightsName: useApplicationInsights ? monitoring.outputs.applicationInsightsName : ''
   }
 }
 
@@ -500,10 +608,6 @@ module containerApps 'core/host/container-apps.bicep' = if (deploymentTarget == 
 module acaBackend 'core/host/container-app-upsert.bicep' = if (deploymentTarget == 'containerapps') {
   name: 'aca-web'
   scope: resourceGroup
-  dependsOn: [
-    containerApps
-    acaIdentity
-  ]
   params: {
     name: !empty(backendServiceName) ? backendServiceName : '${abbrs.webSitesContainerApps}backend-${resourceToken}'
     location: location
@@ -522,20 +626,24 @@ module acaBackend 'core/host/container-app-upsert.bicep' = if (deploymentTarget 
       // For using managed identity to access Azure resources. See https://github.com/microsoft/azure-container-apps/issues/442
       AZURE_CLIENT_ID: (deploymentTarget == 'containerapps') ? acaIdentity.outputs.clientId : ''
     })
-    secrets: useAuthentication ? {
-      azureclientappsecret: clientAppSecret
-      azureserverappsecret: serverAppSecret
-    } : {}
-    envSecrets: useAuthentication ? [
-      {
-        name: 'AZURE_CLIENT_APP_SECRET'
-        secretRef: 'azureclientappsecret'
-      }
-      {
-        name: 'AZURE_SERVER_APP_SECRET'
-        secretRef: 'azureserverappsecret'
-      }
-    ] : []
+    secrets: useAuthentication
+      ? {
+          azureclientappsecret: clientAppSecret
+          azureserverappsecret: serverAppSecret
+        }
+      : {}
+    envSecrets: useAuthentication
+      ? [
+          {
+            name: 'AZURE_CLIENT_APP_SECRET'
+            secretRef: 'azureclientappsecret'
+          }
+          {
+            name: 'AZURE_SERVER_APP_SECRET'
+            secretRef: 'azureserverappsecret'
+          }
+        ]
+      : []
   }
 }
 
@@ -585,19 +693,20 @@ var openAiDeployments = concat(
   defaultOpenAiDeployments,
   useEval
     ? [
-      {
-        name: eval.deploymentName
-        model: {
-          format: 'OpenAI'
-          name: eval.modelName
-          version: eval.deploymentVersion
+        {
+          name: eval.deploymentName
+          model: {
+            format: 'OpenAI'
+            name: eval.modelName
+            version: eval.deploymentVersion
+          }
+          sku: {
+            name: eval.deploymentSkuName
+            capacity: eval.deploymentCapacity
+          }
         }
-        sku: {
-          name: eval.deploymentSkuName
-          capacity: eval.deploymentCapacity
-        }
-      }
-    ] : [],
+      ]
+    : [],
   useGPT4V
     ? [
         {
@@ -681,7 +790,6 @@ module computerVision 'br/public:avm/res/cognitive-services/account:0.7.2' = if 
     sku: computerVisionSkuName
   }
 }
-
 
 module contentUnderstanding 'br/public:avm/res/cognitive-services/account:0.7.2' = if (useMediaDescriberAzureCU) {
   name: 'content-understanding'
@@ -882,6 +990,80 @@ module ai 'core/ai/ai-environment.bicep' = if (useAiProject) {
   }
 }
 
+var openAiPrivateEndpointConnection = (usePrivateEndpoint && isAzureOpenAiHost && deployAzureOpenAi)
+  ? [
+      {
+        groupId: 'account'
+        dnsZoneName: openAiPrivateDnsZoneName
+        resourceIds: concat(
+          [openAi.outputs.resourceId],
+          useGPT4V ? [computerVision.outputs.resourceId] : [],
+          useMediaDescriberAzureCU ? [contentUnderstanding.outputs.resourceId] : [],
+          !useLocalPdfParser ? [documentIntelligence.outputs.resourceId] : []
+        )
+      }
+    ]
+  : []
+
+var otherPrivateEndpointConnections = (usePrivateEndpoint)
+  ? union(
+      [
+        {
+          groupId: 'blob'
+          dnsZoneName: storageBlobPrivateDnsZoneName
+          resourceIds: concat([storage.outputs.id], useUserUpload ? [userStorage.outputs.id] : [])
+        }
+        {
+          groupId: 'searchService'
+          dnsZoneName: searchPrivateDnsZoneName
+          resourceIds: [searchService.outputs.id]
+        }
+        {
+          groupId: 'sql'
+          dnsZoneName: cosmosDbPrivateDnsZoneName
+          resourceIds: (useAuthentication && useChatHistoryCosmos) ? [cosmosDb.outputs.resourceId] : []
+        }
+      ],
+      deploymentTarget == 'containerapps'
+        ? publicNetworkAccess == 'Disabled'
+            ? [
+                {
+                  groupId: 'storage'
+                  dnsZoneName: storageBlobPrivateDnsZoneName
+                  resourceIds: [storage.outputs.id]
+                }
+              ]
+            : []
+        : [
+            {
+              groupId: 'sites'
+              dnsZoneName: websitePrivateDnsZoneName
+              resourceIds: [backend.outputs.id]
+            }
+          ]
+    )
+  : []
+
+var privateEndpointConnections = concat(otherPrivateEndpointConnections, openAiPrivateEndpointConnection)
+
+module privateEndpoints 'private-endpoints.bicep' = if (usePrivateEndpoint) {
+  name: 'privateEndpoints'
+  scope: resourceGroup
+  params: {
+    location: location
+    tags: tags
+    resourceToken: resourceToken
+    privateEndpointConnections: privateEndpointConnections
+    applicationInsightsId: useApplicationInsights ? monitoring.outputs.applicationInsightsId : ''
+    logAnalyticsWorkspaceId: useApplicationInsights ? monitoring.outputs.logAnalyticsWorkspaceId : ''
+    vnetName: useExistingVnet ? vnetExisting.outputs.name : vnet.outputs.name
+    vnetPeSubnetName: useExistingVnet
+      ? vnetExisting.outputs.privateEndpointSubnetName
+      : vnet.outputs.privateEndpointSubnetName
+    dnsSubId: dnsSubscriptionId
+    dnsZoneRG: dnsZoneRG
+  }
+}
 
 // USER ROLES
 var principalType = empty(runningOnGh) && empty(runningOnAdo) ? 'User' : 'ServicePrincipal'
@@ -1102,78 +1284,6 @@ module cosmosDbRoleBackend 'core/security/documentdb-sql-role.bicep' = if (useAu
   }
 }
 
-module isolation 'network-isolation.bicep' = {
-  name: 'networks'
-  scope: resourceGroup
-  params: {
-    deploymentTarget: deploymentTarget
-    location: location
-    tags: tags
-    vnetName: '${abbrs.virtualNetworks}${resourceToken}'
-    // Need to check deploymentTarget due to https://github.com/Azure/bicep/issues/3990
-    appServicePlanName: deploymentTarget == 'appservice' ? appServicePlan.outputs.name : ''
-    usePrivateEndpoint: usePrivateEndpoint
-  }
-}
-
-var environmentData = environment()
-
-var openAiPrivateEndpointConnection = (isAzureOpenAiHost && deployAzureOpenAi && deploymentTarget == 'appservice')
-  ? [
-      {
-        groupId: 'account'
-        dnsZoneName: 'privatelink.openai.azure.com'
-        resourceIds: concat(
-          [openAi.outputs.resourceId],
-          useGPT4V ? [computerVision.outputs.resourceId] : [],
-          useMediaDescriberAzureCU ? [contentUnderstanding.outputs.resourceId] : [],
-          !useLocalPdfParser ? [documentIntelligence.outputs.resourceId] : []
-        )
-      }
-    ]
-  : []
-var otherPrivateEndpointConnections = (usePrivateEndpoint && deploymentTarget == 'appservice')
-  ? [
-      {
-        groupId: 'blob'
-        dnsZoneName: 'privatelink.blob.${environmentData.suffixes.storage}'
-        resourceIds: concat([storage.outputs.id], useUserUpload ? [userStorage.outputs.id] : [])
-      }
-      {
-        groupId: 'searchService'
-        dnsZoneName: 'privatelink.search.windows.net'
-        resourceIds: [searchService.outputs.id]
-      }
-      {
-        groupId: 'sites'
-        dnsZoneName: 'privatelink.azurewebsites.net'
-        resourceIds: [backend.outputs.id]
-      }
-      {
-        groupId: 'sql'
-        dnsZoneName: 'privatelink.documents.azure.com'
-        resourceIds: (useAuthentication && useChatHistoryCosmos) ? [cosmosDb.outputs.resourceId] : []
-      }
-    ]
-  : []
-
-var privateEndpointConnections = concat(otherPrivateEndpointConnections, openAiPrivateEndpointConnection)
-
-module privateEndpoints 'private-endpoints.bicep' = if (usePrivateEndpoint && deploymentTarget == 'appservice') {
-  name: 'privateEndpoints'
-  scope: resourceGroup
-  params: {
-    location: location
-    tags: tags
-    resourceToken: resourceToken
-    privateEndpointConnections: privateEndpointConnections
-    applicationInsightsId: useApplicationInsights ? monitoring.outputs.applicationInsightsId : ''
-    logAnalyticsWorkspaceId: useApplicationInsights ? monitoring.outputs.logAnalyticsWorkspaceId : ''
-    vnetName: isolation.outputs.vnetName
-    vnetPeSubnetName: isolation.outputs.backendSubnetId
-  }
-}
-
 // Used to read index definitions (required when using authentication)
 // https://learn.microsoft.com/azure/search/search-security-rbac
 module searchReaderRoleBackend 'core/security/role.bicep' = if (useAuthentication) {
@@ -1252,7 +1362,9 @@ output AZURE_SPEECH_SERVICE_ID string = useSpeechOutputAzure ? speech.outputs.re
 output AZURE_SPEECH_SERVICE_LOCATION string = useSpeechOutputAzure ? speech.outputs.location : ''
 
 output AZURE_VISION_ENDPOINT string = useGPT4V ? computerVision.outputs.endpoint : ''
-output AZURE_CONTENTUNDERSTANDING_ENDPOINT string = useMediaDescriberAzureCU ? contentUnderstanding.outputs.endpoint : ''
+output AZURE_CONTENTUNDERSTANDING_ENDPOINT string = useMediaDescriberAzureCU
+  ? contentUnderstanding.outputs.endpoint
+  : ''
 
 output AZURE_DOCUMENTINTELLIGENCE_SERVICE string = documentIntelligence.outputs.name
 output AZURE_DOCUMENTINTELLIGENCE_RESOURCE_GROUP string = documentIntelligenceResourceGroup.name

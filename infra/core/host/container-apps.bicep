@@ -12,6 +12,8 @@ param applicationInsightsName string = '' // Not used here, was used for DAPR
 param virtualNetworkSubnetId string = ''
 @allowed(['Consumption', 'D4', 'D8', 'D16', 'D32', 'E4', 'E8', 'E16', 'E32', 'NC24-A100', 'NC48-A100', 'NC96-A100'])
 param workloadProfile string
+@allowed(['Enabled', 'Disabled'])
+param publicNetworkAccess string = 'Enabled'
 
 var workloadProfiles = workloadProfile == 'Consumption'
   ? [
@@ -36,18 +38,24 @@ var workloadProfiles = workloadProfile == 'Consumption'
 @description('Optional user assigned identity IDs to assign to the resource')
 param userAssignedIdentityResourceIds array = []
 
+resource applicationInsights 'Microsoft.Insights/components@2020-02-02' existing = if (!empty(applicationInsightsName)) {
+  name: 'applicationinsights'
+}
+
 module containerAppsEnvironment 'br/public:avm/res/app/managed-environment:0.8.0' = {
   name: '${name}-container-apps-environment'
   params: {
     // Required parameters
     logAnalyticsWorkspaceResourceId: logAnalyticsWorkspaceResourceId
 
-    managedIdentities: empty(userAssignedIdentityResourceIds) ? {
-      systemAssigned: true
-    } : {
-      userAssignedResourceIds: userAssignedIdentityResourceIds
-    }
-
+    managedIdentities: empty(userAssignedIdentityResourceIds)
+      ? {
+          systemAssigned: true
+        }
+      : {
+          userAssignedResourceIds: userAssignedIdentityResourceIds
+        }
+    internal: publicNetworkAccess == 'Disabled'
     name: containerAppsEnvironmentName
     // Non-required parameters
     infrastructureResourceGroupName: containerRegistryResourceGroupName
@@ -56,6 +64,7 @@ module containerAppsEnvironment 'br/public:avm/res/app/managed-environment:0.8.0
     tags: tags
     zoneRedundant: false
     workloadProfiles: workloadProfiles
+    appInsightsConnectionString: !empty(applicationInsightsName) ? applicationInsights.properties.ConnectionString : ''
   }
 }
 
