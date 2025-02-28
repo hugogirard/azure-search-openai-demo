@@ -1227,6 +1227,146 @@ module documentIntelligenceRoleBackend 'core/security/role.bicep' = if (useUserU
   }
 }
 
+
+
+// Function App and supporting infra Provisioning
+
+var functionAppName = '${abbrs.webSitesFunctions}${resourceToken}'
+var deploymentStorageContainerName = '${take(functionAppName, 32)}-${take(toLower(uniqueString(functionAppName, resourceToken)), 7)}'
+
+module func './core/host/functions.bicep' = {
+  name: '${functionAppName}-functions-module'
+  scope: resourceGroup
+  params: {
+    name: functionAppName
+    location: location
+    tags: union(tags, { 'azd-service-name': 'function' })
+    managedIdentity: true
+    applicationInsightsName: useApplicationInsights ? monitoring.outputs.applicationInsightsName : ''
+    appServicePlanId: appServicePlan.outputs.id
+    runtimeName: 'python'
+    runtimeVersion: '3.11'
+    storageAccountName: storageAccountName
+    deploymentStorageContainerName: deploymentStorageContainerName
+    virtualNetworkSubnetId: isolation.outputs.appSubnetId
+    instanceMemoryMB: 2048 
+    maximumInstanceCount: 2
+  }
+}
+
+// Backing storage for Azure functions
+module funcStorage './core/storage/storage-account.bicep' = {
+  name: 'create-func-storage'
+  scope: resourceGroup
+  params: {
+    name: 'func${abbrs.storageStorageAccounts}${resourceToken}'
+    location: location
+    tags: tags
+    containers: [{name: deploymentStorageContainerName}]
+  }
+}
+
+var storageRoleDefinitionId  = 'b7e6dc6d-f1e8-4753-8033-0f276bb0955b' //Storage Blob Data Owner role
+
+// Allow access from func to storage account using a managed identity
+module storageRoleAssignmentFunction 'core/security/role.bicep' = {
+  name: 'storageRoleAssignmentFunction'
+  scope: resourceGroup
+  params: {
+    principalId: func.outputs.identityPrincipalId    
+    roleDefinitionId: storageRoleDefinitionId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// Role Assignement for FunctionApp
+
+module openAiRoleFunction 'core/security/role.bicep' = if (isAzureOpenAiHost && deployAzureOpenAi) {
+  scope: openAiResourceGroup
+  name: 'openai-role-function'
+  params: {
+    principalId: func.outputs.identityPrincipalId
+    roleDefinitionId: '5e0bd9bd-7b93-4f28-af87-19fc36ad61bd'
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// For both document intelligence and computer vision
+module cognitiveServicesRoleFunction 'core/security/role.bicep' = {
+  scope: resourceGroup
+  name: 'cognitiveservices-role-function'
+  params: {
+    principalId: func.outputs.identityPrincipalId
+    roleDefinitionId: 'a97b65f3-24c7-4388-baec-2e87135dc908'
+    principalType: 'ServicePrincipal'
+  }
+}
+
+module speechRoleFunction 'core/security/role.bicep' = {
+  scope: speechResourceGroup
+  name: 'speech-role-function'
+  params: {
+    principalId: func.outputs.identityPrincipalId
+    roleDefinitionId: 'f2dc8367-1007-4938-bd23-fe263f013447'
+    principalType: 'ServicePrincipal'
+  }
+}
+
+module storageRoleFunction 'core/security/role.bicep' = {
+  scope: storageResourceGroup
+  name: 'storage-role-function'
+  params: {
+    principalId: func.outputs.identityPrincipalId
+    roleDefinitionId: '2a2b9908-6ea1-4ae2-8e65-a410df84e7d1'
+    principalType: 'ServicePrincipal'
+  }
+}
+
+module storageContribRoleFunction 'core/security/role.bicep' = {
+  scope: storageResourceGroup
+  name: 'storage-contrib-role-function'
+  params: {
+    principalId: func.outputs.identityPrincipalId
+    roleDefinitionId: 'ba92f5b4-2d11-453d-a403-e96b0029c9fe'
+    principalType: 'ServicePrincipal'
+  }
+}
+
+module searchRoleFunction 'core/security/role.bicep' = {
+  scope: searchServiceResourceGroup
+  name: 'search-role-function'
+  params: {
+    principalId: func.outputs.identityPrincipalId
+    roleDefinitionId: '1407120a-92aa-4202-b7e9-c0e197c71c8f'
+    principalType: 'ServicePrincipal'
+  }
+}
+
+module searchContribRoleFunction 'core/security/role.bicep' = {
+  scope: searchServiceResourceGroup
+  name: 'search-contrib-role-function'
+  params: {
+    principalId: func.outputs.identityPrincipalId
+    roleDefinitionId: '8ebe5a00-799e-43f5-93ac-243d3dce84a7'
+    principalType: 'ServicePrincipal'
+  }
+}
+
+module searchSvcContribRoleFunction 'core/security/role.bicep' = {
+  scope: searchServiceResourceGroup
+  name: 'search-svccontrib-role-function'
+  params: {
+    principalId: func.outputs.identityPrincipalId
+    roleDefinitionId: '7ca78c08-252a-4471-8644-bb5ff32d4ba0'
+    principalType: 'ServicePrincipal'
+  }
+}
+
+
+
+output SERVICE_FUNC_NAME string = func.outputs.name
+output SERVICE_FUNC_IDENTITY_PRINCIPAL_ID string = func.outputs.identityPrincipalId
+
 output AZURE_LOCATION string = location
 output AZURE_TENANT_ID string = tenantId
 output AZURE_AUTH_TENANT_ID string = authTenantId
