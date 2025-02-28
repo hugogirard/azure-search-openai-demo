@@ -416,7 +416,7 @@ module vnet './core/networking/vnet.bicep' = if (!useExistingVnet) {
 
 module vnetExisting './core/networking/vnet-existing.bicep' = if (useExistingVnet) {
   name: 'vnetExisting'
-  scope: az.resourceGroup(existingVnetSubscriptionId, existingVnetRG)
+  scope: resourceGroup
   params: {
     name: vnetName
     privateEndpointSubnetName: !empty(privateEndpointSubnetName) ? privateEndpointSubnetName : 'snet-private-endpoint'
